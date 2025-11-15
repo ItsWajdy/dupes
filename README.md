@@ -83,8 +83,8 @@ To contribute to `dupes`, follow these steps:
 1.  Fork the repository.
 2.  Clone your forked repository:
     ```bash
-    git clone https://github.com/your-username/duplicate_files_detector.git
-    cd duplicate_files_detector
+    git clone https://github.com/ItsWajdy/dupes.git
+    cd dupes
     ```
 3.  Create a virtual environment and install dependencies:
     ```bash
@@ -96,7 +96,3 @@ To contribute to `dupes`, follow these steps:
 4.  Make your changes and test them.
 5.  Commit your changes and push to your fork.
 6.  Open a pull request.
-
-## License
-
-This project is licensed under the MIT License. See the `LICENSE` file for details. (Note: A `LICENSE` file is not included in the current project structure, but it's good practice to mention it.)

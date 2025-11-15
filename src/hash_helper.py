@@ -1,8 +1,6 @@
 import os
 import hashlib
 import pickle
-import sys
-import hashlib
 from src.constants import HASHES_PICKLE_PATH
 from src.constants import EMPTY_HASHES_PICKLE
 
@@ -22,8 +20,6 @@ class HashHelper:
         BUF_SIZE = 65536  # Read in 64kb chunks
         sha256 = hashlib.sha256()
 
-        if verbose:
-            print(f"Hashing file: {filepath}", file=sys.stderr)
         with open(filepath, 'rb') as f:
             while True:
                 data = f.read(BUF_SIZE)
@@ -47,8 +43,6 @@ class HashHelper:
 
         sha256 = hashlib.sha256()
 
-        if verbose:
-            print(f"Hashing list of {len(hashes)} items.", file=sys.stderr)
         for item in sorted(hashes):
             sha256.update(item.encode('utf-8'))
 
@@ -66,13 +60,9 @@ class HashHelper:
         """
 
         if os.path.exists(HASHES_PICKLE_PATH):
-            if verbose:
-                print(f"Loading hashes from {HASHES_PICKLE_PATH}")
             with open(HASHES_PICKLE_PATH, 'rb') as f:
                 return pickle.load(f)
         else:
-            if verbose:
-                print(f"No existing hash file found at {HASHES_PICKLE_PATH}. Starting fresh.")
             return EMPTY_HASHES_PICKLE
     
     @staticmethod
@@ -89,8 +79,6 @@ class HashHelper:
 
         with open(HASHES_PICKLE_PATH, 'wb') as f:
             pickle.dump(hashes, f)
-        if verbose:
-            print(f"Saved {len(hashes)} hashes to {HASHES_PICKLE_PATH}")
     
     @staticmethod
     def clear_hashes(verbose: bool = False):
@@ -104,5 +92,3 @@ class HashHelper:
         """
 
         HashHelper.save_hashes(EMPTY_HASHES_PICKLE, verbose=verbose)
-        if verbose:
-            print(f"Cleared all hashes in {HASHES_PICKLE_PATH}")

@@ -54,7 +54,10 @@ def detect_duplicates(verbose: bool):
 @click.option('--verbose', '-v', is_flag=True, help='Enable verbose output.')
 def clear_hashes(verbose: bool):
     """Clear all stored hashes."""
-    HashHelper.clear_hashes(verbose=verbose)
+    try:
+        HashHelper.clear_hashes(verbose=verbose)
+    except Exception as e:
+        click.echo(f"Error clearing hashes: {e}", err=True)
 
 if __name__ == '__main__':
     main()

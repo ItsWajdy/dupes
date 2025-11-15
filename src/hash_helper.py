@@ -24,14 +24,26 @@ class HashHelper:
 
         if verbose:
             print(f"Hashing file: {filepath}", file=sys.stderr)
-        with open(filepath, 'rb') as f:
-            while True:
-                data = f.read(BUF_SIZE)
-                if not data:
-                    break
-                sha256.update(data)
-
-        return sha256.hexdigest()
+        try:
+            with open(filepath, 'rb') as f:
+                while True:
+                    data = f.read(BUF_SIZE)
+                    if not data:
+                        break
+                    sha256.update(data)
+            return sha256.hexdigest()
+        except FileNotFoundError:
+            print(f"File not found: {filepath}", file=sys.stderr)
+            raise
+        except PermissionError:
+            print(f"Permission denied to read file: {filepath}", file=sys.stderr)
+            raise
+        except IOError as e:
+            print(f"IO error while hashing file {filepath}: {e}", file=sys.stderr)
+            raise
+        except Exception as e:
+            print(f"An unexpected error occurred while hashing file {filepath}: {e}", file=sys.stderr)
+            raise
 
     @staticmethod
     def hash_list(hashes: list[str], verbose: bool = False) -> str:
@@ -68,8 +80,18 @@ class HashHelper:
         if os.path.exists(HASHES_PICKLE_PATH):
             if verbose:
                 print(f"Loading hashes from {HASHES_PICKLE_PATH}")
-            with open(HASHES_PICKLE_PATH, 'rb') as f:
-                return pickle.load(f)
+            try:
+                with open(HASHES_PICKLE_PATH, 'rb') as f:
+                    return pickle.load(f)
+            except (EOFError, pickle.UnpicklingError) as e:
+                print(f"Error loading hashes from {HASHES_PICKLE_PATH}: {e}. Starting fresh.", file=sys.stderr)
+                return EMPTY_HASHES_PICKLE
+            except (IOError, PermissionError) as e:
+                print(f"Error accessing hash file {HASHES_PICKLE_PATH}: {e}. Starting fresh.", file=sys.stderr)
+                return EMPTY_HASHES_PICKLE
+            except Exception as e:
+                print(f"An unexpected error occurred while loading hashes from {HASHES_PICKLE_PATH}: {e}. Starting fresh.", file=sys.stderr)
+                return EMPTY_HASHES_PICKLE
         else:
             if verbose:
                 print(f"No existing hash file found at {HASHES_PICKLE_PATH}. Starting fresh.")
@@ -87,10 +109,17 @@ class HashHelper:
             None
         """
 
-        with open(HASHES_PICKLE_PATH, 'wb') as f:
-            pickle.dump(hashes, f)
-        if verbose:
-            print(f"Saved {len(hashes)} hashes to {HASHES_PICKLE_PATH}")
+        try:
+            with open(HASHES_PICKLE_PATH, 'wb') as f:
+                pickle.dump(hashes, f)
+            if verbose:
+                print(f"Saved {len(hashes)} hashes to {HASHES_PICKLE_PATH}")
+        except (IOError, PermissionError) as e:
+            print(f"Error saving hashes to {HASHES_PICKLE_PATH}: {e}", file=sys.stderr)
+            raise
+        except Exception as e:
+            print(f"An unexpected error occurred while saving hashes to {HASHES_PICKLE_PATH}: {e}", file=sys.stderr)
+            raise
     
     @staticmethod
     def clear_hashes(verbose: bool = False):

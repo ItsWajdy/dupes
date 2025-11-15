@@ -21,25 +21,44 @@ class Dupes:
             if verbose:
                 print(f"Hashing file: {path}")
             
-            file_hash = HashHelper.hash_file(path, verbose=verbose)
-            if file_hash in self.hashes['files']:
-                if path not in self.hashes['files'][file_hash]:
-                    self.hashes['files'][file_hash].append(path)
-            else:
-                self.hashes['files'][file_hash] = [path]
-            
-            HashHelper.save_hashes(self.hashes, verbose=verbose)
-            return file_hash
+            try:
+                file_hash = HashHelper.hash_file(path, verbose=verbose)
+                if file_hash in self.hashes['files']:
+                    if path not in self.hashes['files'][file_hash]:
+                        self.hashes['files'][file_hash].append(path)
+                else:
+                    self.hashes['files'][file_hash] = [path]
+                
+                HashHelper.save_hashes(self.hashes, verbose=verbose)
+                return file_hash
+            except (IOError, PermissionError) as e:
+                print(f"Error hashing file {path}: {e}")
+                raise
+            except Exception as e:
+                print(f"An unexpected error occurred while hashing file {path}: {e}")
+                raise
         
         contents_hashes = []
 
         if verbose:
             print(f"Hashing directory: {path}")
         
-        contents = FilesHelper.get_dir_contents(path, verbose=verbose)
+        try:
+            contents = FilesHelper.get_dir_contents(path, verbose=verbose)
+        except (IOError, PermissionError) as e:
+            print(f"Error getting contents of directory {path}: {e}")
+            raise
+        except Exception as e:
+            print(f"An unexpected error occurred while getting contents of directory {path}: {e}")
+            raise
+
         for item in contents:
-            item_hash = self.reursive_hash(item, verbose=verbose)
-            contents_hashes.append(item_hash)
+            try:
+                item_hash = self.reursive_hash(item, verbose=verbose)
+                if item_hash is not None:
+                    contents_hashes.append(item_hash)
+            except Exception as e:
+                print(f"Skipping {item} due to error: {e}")
         
         if verbose:
             print(f"Computed hashes for contents of directory: {path}")
@@ -51,7 +70,14 @@ class Dupes:
         else:
             self.hashes['dirs'][dir_hash] = [path]
         
-        HashHelper.save_hashes(self.hashes, verbose=verbose)
+        try:
+            HashHelper.save_hashes(self.hashes, verbose=verbose)
+        except (IOError, PermissionError) as e:
+            print(f"Error saving hashes for directory {path}: {e}")
+            raise
+        except Exception as e:
+            print(f"An unexpected error occurred while saving hashes for directory {path}: {e}")
+            raise
         return dir_hash
     
     def detect_duplicates(self, verbose: bool = False) -> dict:

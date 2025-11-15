@@ -4,15 +4,17 @@ import pickle
 import sys
 import hashlib
 from src.constants import HASHES_PICKLE_PATH
+from src.constants import EMPTY_HASHES_PICKLE
 
 class HashHelper:
     @staticmethod
     def hash_file(filepath: str, verbose: bool = False) -> str:
-        """Hash a file using SHA-256.
+        """
+        Hash a file using SHA-256.
 
         Args:
             filepath (str): The path to the file.
-            verbose (bool, optional): If True, print the file being hashed. Defaults to False.
+            verbose (bool, optional): If True, print verbose output. Defaults to False.
         Returns:
             str: The SHA-256 hash of the file.
         """
@@ -32,11 +34,33 @@ class HashHelper:
         return sha256.hexdigest()
 
     @staticmethod
-    def load_hashes(verbose: bool = False) -> dict:
-        """Load hashes from a pickle file.
+    def hash_list(hashes: list[str], verbose: bool = False) -> str:
+        """
+        Hash a list of strings using SHA-256.
 
         Args:
-            verbose (bool): Whether to print verbose output.
+            hashes (list[str]): The list of strings to hash.
+            verbose (bool, optional): If True, print verbose output. Defaults to False.
+        Returns:
+            str: The SHA-256 hash of the concatenated strings.
+        """
+
+        sha256 = hashlib.sha256()
+
+        if verbose:
+            print(f"Hashing list of {len(hashes)} items.", file=sys.stderr)
+        for item in sorted(hashes):
+            sha256.update(item.encode('utf-8'))
+
+        return sha256.hexdigest()
+
+    @staticmethod
+    def load_hashes(verbose: bool = False) -> dict:
+        """
+        Load hashes from a pickle file.
+
+        Args:
+            verbose (bool, optional): If True, print verbose output. Defaults to False.
         Returns:
             dict: The loaded hashes.
         """
@@ -49,15 +73,16 @@ class HashHelper:
         else:
             if verbose:
                 print(f"No existing hash file found at {HASHES_PICKLE_PATH}. Starting fresh.")
-            return {}
+            return EMPTY_HASHES_PICKLE
     
     @staticmethod
     def save_hashes(hashes: dict, verbose: bool = False):
-        """Save hashes to a pickle file.
+        """
+        Save hashes to a pickle file.
 
         Args:
             hashes (dict): The hashes to save.
-            verbose (bool): Whether to print verbose output.
+            verbose (bool, optional): If True, print verbose output. Defaults to False.
         Returns:
             None
         """
@@ -69,14 +94,15 @@ class HashHelper:
     
     @staticmethod
     def clear_hashes(verbose: bool = False):
-        """Clear all stored hashes.
+        """
+        Clear all stored hashes.
 
         Args:
-            verbose (bool): Whether to print verbose output.
+            verbose (bool, optional): If True, print verbose output. Defaults to False.
         Returns:
             None
         """
 
-        HashHelper.save_hashes({}, verbose=verbose)
+        HashHelper.save_hashes(EMPTY_HASHES_PICKLE, verbose=verbose)
         if verbose:
             print(f"Cleared all hashes in {HASHES_PICKLE_PATH}")

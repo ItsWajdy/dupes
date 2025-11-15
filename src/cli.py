@@ -19,28 +19,33 @@ def main():
 def process_dir(verbose: bool, dirs: list[str]):
     """Process the given directories."""
     
-    logger = Logger(verbose=verbose, max_log_lines=15)
-    dupes = Dupes(verbose=verbose, logger=logger)
+    # Use SimpleLogger for the counting phase
+    simple_logger = SimpleLogger(verbose=verbose)
     
     try:
-        logger.info("Scanning directories to count items...")
+        simple_logger.info("Scanning directories to count items...")
+        
+        dupes_counter = Dupes(verbose=verbose, logger=simple_logger)
         total_files = 0
         total_dirs = 0
         
         for dir_path in dirs:
             try:
-                counts = dupes.count_items(dir_path)
+                counts = dupes_counter.count_items(dir_path)
                 total_files += counts['files']
                 total_dirs += counts['dirs']
             except Exception as e:
-                logger.error(f"Error counting items in {dir_path}: {str(e)}")
+                simple_logger.error(f"Error counting items in {dir_path}: {str(e)}")
                 continue
         
         if total_files == 0 and total_dirs == 0:
-            logger.error("No accessible files or directories found to process")
+            simple_logger.error("No accessible files or directories found to process")
             return
         
-        logger.info(f"Found {total_files} files and {total_dirs} directories to process")
+        simple_logger.info(f"Found {total_files} files and {total_dirs} directories to process")
+        
+        logger = Logger(verbose=verbose, max_log_lines=15)
+        dupes = Dupes(verbose=verbose, logger=logger)
         
         # Start the live display with progress bar
         logger.start()
@@ -70,22 +75,31 @@ def process_dir(verbose: bool, dirs: list[str]):
             
             if verbose and dupes.skipped_items:
                 logger.print("\n[dim]Skipped items:[/dim]")
-                for item in dupes.skipped_items[:10]:
+                for item in dupes.skipped_items[:10]:  # Show first 10
                     logger.print(f"  [dim]- {item}[/dim]")
                 if len(dupes.skipped_items) > 10:
                     logger.print(f"  [dim]... and {len(dupes.skipped_items) - 10} more[/dim]")
         
     except KeyboardInterrupt:
-        logger.stop()
-        logger.print("\n[yellow]Processing interrupted by user[/yellow]")
-        if dupes.file_count > 0:
-            logger.print(f"[dim]Processed {dupes.file_count} files before interruption[/dim]")
+        if 'logger' in locals():
+            logger.stop()
+            logger.print("\n[yellow]Processing interrupted by user[/yellow]")
+            if 'dupes' in locals() and dupes.file_count > 0:
+                logger.print(f"[dim]Processed {dupes.file_count} files before interruption[/dim]")
+        else:
+            simple_logger.print("\n[yellow]Processing interrupted by user[/yellow]")
     except Exception as e:
-        logger.stop()
-        logger.print(f"\n[bold red]Unexpected error:[/bold red] {str(e)}")
-        if verbose:
-            import traceback
-            logger.print(f"\n[dim]{traceback.format_exc()}[/dim]")
+        if 'logger' in locals():
+            logger.stop()
+            logger.print(f"\n[bold red]Unexpected error:[/bold red] {str(e)}")
+            if verbose:
+                import traceback
+                logger.print(f"\n[dim]{traceback.format_exc()}[/dim]")
+        else:
+            simple_logger.print(f"\n[bold red]Unexpected error:[/bold red] {str(e)}")
+            if verbose:
+                import traceback
+                simple_logger.print(f"\n[dim]{traceback.format_exc()}[/dim]")
 
 @main.command()
 @click.option('--verbose', '-v', is_flag=True, help='Enable verbose output.')

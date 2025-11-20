@@ -3,6 +3,7 @@ import os
 import shutil
 import subprocess
 import platform
+import threading
 from .dupes import Dupes
 from .hash_helper import HashHelper
 from .filters import DuplicateFilter, SizeFilter
@@ -19,11 +20,13 @@ class DupesGUI:
         self.pending_delete_path = None
         self.confirmation_overlay = None
         self.total_space_saved = 0  # Track space saved across deletions
+        self.page_update_lock = threading.Lock()  # Lock for thread-safe page updates
         self.selected_items = set()  # Track selected items for bulk operations
         self.checkboxes = {}  # Map path -> checkbox reference
         self.current_duplicates = None  # Store current duplicates for operations
         self.scan_stop_requested = False  # Flag to stop scanning
         self.updating_ui = False  # Flag to prevent concurrent UI updates
+        self.is_stopping_scan = False  # Flag to prevent UI updates during scan stop
         self.last_displayed_count = 0  # Track how many duplicates we've displayed
         self.max_initial_display = 100  # Maximum number of duplicate items to show initially
         
@@ -51,6 +54,15 @@ class DupesGUI:
         
         # Setup keyboard event handler
         self.page.on_keyboard_event = self.on_keyboard_event
+
+    def safe_update(self):
+        """Thread-safe wrapper for page.update() to prevent concurrent UI updates."""
+        with self.page_update_lock:
+            try:
+                self.page.update()
+            except Exception as e:
+                # Silently ignore update errors during concurrent access
+                pass
 
     def setup_ui(self):
         """Create and arrange the UI components."""
@@ -87,11 +99,12 @@ class DupesGUI:
         )
         
         self.prescan_min_size_input = ft.TextField(
-            label="Min file size",
-            hint_text="e.g., 1MB, 100KB",
+            label="Min file size (MB)",
+            hint_text="e.g., 1, 10, 100",
             width=150,
-            on_change=self.on_prescan_option_change,
+            on_change=self.on_prescan_size_change,
             data='min_size',
+            keyboard_type=ft.KeyboardType.NUMBER,
         )
         
         self.scan_subfolders_switch = ft.Switch(
@@ -234,6 +247,24 @@ class DupesGUI:
             self.prescan_exclude_folders = new_value
             self.page.update()
     
+    def on_prescan_size_change(self, e):
+        """Handle pre-scan min size input - only accept integers and format as MB."""
+        value = e.control.value.strip()
+        
+        # Filter out non-numeric characters
+        filtered_value = ''.join(c for c in value if c.isdigit())
+        
+        # Update the field if it changed
+        if filtered_value != value:
+            e.control.value = filtered_value
+            self.page.update()
+        
+        # Store as "XMB" format for internal use
+        if filtered_value:
+            self.prescan_min_size = f"{filtered_value}MB"
+        else:
+            self.prescan_min_size = ''
+    
     def on_prescan_option_change(self, e):
         """Handle pre-scan option changes."""
         if hasattr(e.control, 'data'):
@@ -265,6 +296,7 @@ class DupesGUI:
     def stop_scan(self, e=None):
         """Stop the current scan."""
         self.scan_stop_requested = True
+        self.is_stopping_scan = True
         self.scan_status.value = "Stopping scan..."
         self.page.update()
     
@@ -377,14 +409,17 @@ class DupesGUI:
                 
                 # Final update to show all duplicates
                 self.display_duplicates(duplicates)
-                self.page.update()
+                
+                # Reset the stopping flag after scan completes
+                self.is_stopping_scan = False
+                self.safe_update()
             except Exception as e:
                 self.scan_status.value = f"Error during scan: {e}"
                 self.scanning_active = False
                 self.progress_bar.visible = False
                 self.stop_scan_button.visible = False
                 self.select_dir_button.visible = True
-                self.page.update()
+                self.safe_update()
         
         def update_thread():
             """Thread that updates UI with found duplicates - throttled for performance"""
@@ -397,10 +432,10 @@ class DupesGUI:
                 update_count += 1
                 current_time = time.time()
                 
-                # Check if stop was requested
+                # Check if stop was requested - exit immediately to prevent UI updates
                 if self.scan_stop_requested:
                     self.dupes.stop_requested = True
-                    # Don't break immediately, let one more cycle complete
+                    break  # Exit the update thread immediately
                 
                 # Only update UI at intervals (not every loop iteration)
                 if current_time - last_ui_update >= UI_UPDATE_INTERVAL:
@@ -416,14 +451,11 @@ class DupesGUI:
                         # Only update if we have duplicates
                         if duplicates.get('files') or duplicates.get('dirs'):
                             dup_count = sum(len(paths)-1 for paths in duplicates.get('files', {}).values())
-                            if self.scan_stop_requested:
-                                self.scan_status.value = f"Stopping scan..."
-                            else:
-                                self.scan_status.value = f"Scanning: {path}... (Found {dup_count} duplicates so far)"
+                            self.scan_status.value = f"Scanning: {path}... (Found {dup_count} duplicates so far)"
                             
                             # Use optimized display during scanning
                             self.display_duplicates_optimized(duplicates)
-                            self.page.update()
+                            self.safe_update()
                             last_ui_update = current_time
                     finally:
                         self.updating_ui = False
@@ -535,6 +567,10 @@ class DupesGUI:
     
     def select_all_duplicates(self, e):
         """Select all duplicate items (not the kept ones)."""
+        # Prevent UI updates during scan stop to avoid race conditions
+        if self.is_stopping_scan:
+            return
+            
         self.selected_items.clear()
         
         if not self.current_duplicates:
@@ -556,7 +592,7 @@ class DupesGUI:
                     if path in self.checkboxes:
                         self.checkboxes[path].value = True
         
-        self.page.update()
+        self.safe_update()
     
     def select_none(self, e):
         """Deselect all items."""
@@ -788,6 +824,29 @@ class DupesGUI:
         
         return filtered
     
+    def on_filter_size_change(self, e):
+        """Handle post-scan filter min size input - only accept integers and format as MB."""
+        value = e.control.value.strip()
+        
+        # Filter out non-numeric characters
+        filtered_value = ''.join(c for c in value if c.isdigit())
+        
+        # Update the field if it changed
+        if filtered_value != value:
+            e.control.value = filtered_value
+            self.page.update()
+        
+        # Convert to bytes for internal use
+        if filtered_value:
+            self.filter_min_size = int(filtered_value) * 1024 * 1024  # Convert MB to bytes
+        else:
+            self.filter_min_size = 0
+        
+        # Re-apply filters and display
+        if self.raw_duplicates:
+            filtered = self.apply_filters()
+            self.display_duplicates(filtered, skip_filter=True)
+    
     def on_filter_change(self, e):
         """Handle filter/sort control changes."""
         # Update filter settings based on control
@@ -823,6 +882,10 @@ class DupesGUI:
     
     def display_duplicates(self, duplicates: dict, skip_filter: bool = False):
         """Display the found duplicates in the results view."""
+        # Prevent display updates during scan stop to avoid race conditions
+        if self.is_stopping_scan and self.scanning_active:
+            return
+            
         # Store raw duplicates if this is a new scan
         if not skip_filter:
             self.raw_duplicates = duplicates
@@ -886,11 +949,12 @@ class DupesGUI:
                             data='sort_by',
                         ),
                         ft.TextField(
-                            label="Min Size (e.g., 10MB, 1GB)",
+                            label="Min Size (MB)",
+                            hint_text="e.g., 1, 10, 100",
                             width=180,
-                            on_submit=self.on_filter_change,
-                            on_blur=self.on_filter_change,
+                            on_change=self.on_filter_size_change,
                             data='min_size',
+                            keyboard_type=ft.KeyboardType.NUMBER,
                         ),
                         ft.TextField(
                             label="Search in paths",
@@ -968,6 +1032,13 @@ class DupesGUI:
                 # Calculate group size
                 group_size = sum(self.get_path_size(p) for p in paths)
                 
+                # Create handler factories to properly capture loop variables
+                def make_hide_group_handler(h, item_type):
+                    return lambda e: self.hide_group(h, item_type)
+                
+                def make_delete_group_handler(h, item_type):
+                    return lambda e: self.delete_group(h, item_type)
+                
                 # Group header with "Delete Group" and "Hide Group" buttons
                 group_header = ft.Row(
                     [
@@ -979,7 +1050,7 @@ class DupesGUI:
                         ft.ElevatedButton(
                             "Hide Group",
                             icon="visibility_off",
-                            on_click=lambda e, h=hash_value: self.hide_group(h, 'files'),
+                            on_click=make_hide_group_handler(hash_value, 'files'),
                             bgcolor="#616161",
                             color="white",
                             height=35,
@@ -987,7 +1058,7 @@ class DupesGUI:
                         ft.ElevatedButton(
                             "Delete All in Group",
                             icon="delete_forever",
-                            on_click=lambda e, h=hash_value: self.delete_group(h, 'files'),
+                            on_click=make_delete_group_handler(hash_value, 'files'),
                             bgcolor="#f57c00",
                             color="white",
                             height=35,
@@ -1019,16 +1090,17 @@ class DupesGUI:
                     ])
                 )
                 
+                # Define handler factories outside the inner loop to avoid closure issues
+                def make_checkbox_handler(file_path):
+                    return lambda e: self.on_checkbox_change(e, file_path)
+                
+                def make_delete_handler(file_path):
+                    return lambda e: self.confirm_delete(file_path)
+                
+                def make_open_handler(file_path):
+                    return lambda e: self.open_path(file_path)
+                
                 for path in deletable_paths:
-                    def make_checkbox_handler(file_path):
-                        return lambda e: self.on_checkbox_change(e, file_path)
-                    
-                    def make_delete_handler(file_path):
-                        return lambda e: self.confirm_delete(file_path)
-                    
-                    def make_open_handler(file_path):
-                        return lambda e: self.open_path(file_path)
-                    
                     file_size = self.get_path_size(path)
                     
                     # Create checkbox and store reference
@@ -1075,6 +1147,13 @@ class DupesGUI:
                 # Calculate group size
                 group_size = sum(self.get_path_size(p) for p in paths)
                 
+                # Create handler factories to properly capture loop variables
+                def make_hide_group_handler(h, item_type):
+                    return lambda e: self.hide_group(h, item_type)
+                
+                def make_delete_group_handler(h, item_type):
+                    return lambda e: self.delete_group(h, item_type)
+                
                 # Group header with "Delete Group" and "Hide Group" buttons
                 group_header = ft.Row(
                     [
@@ -1086,7 +1165,7 @@ class DupesGUI:
                         ft.ElevatedButton(
                             "Hide Group",
                             icon="visibility_off",
-                            on_click=lambda e, h=hash_value: self.hide_group(h, 'dirs'),
+                            on_click=make_hide_group_handler(hash_value, 'dirs'),
                             bgcolor="#616161",
                             color="white",
                             height=35,
@@ -1094,7 +1173,7 @@ class DupesGUI:
                         ft.ElevatedButton(
                             "Delete All in Group",
                             icon="delete_forever",
-                            on_click=lambda e, h=hash_value: self.delete_group(h, 'dirs'),
+                            on_click=make_delete_group_handler(hash_value, 'dirs'),
                             bgcolor="#f57c00",
                             color="white",
                             height=35,
@@ -1131,16 +1210,17 @@ class DupesGUI:
                     ])
                 )
                 
+                # Define handler factories outside the inner loop to avoid closure issues
+                def make_checkbox_handler(dir_path):
+                    return lambda e: self.on_checkbox_change(e, dir_path)
+                
+                def make_delete_handler(dir_path):
+                    return lambda e: self.confirm_delete(dir_path)
+                
+                def make_open_handler(dir_path):
+                    return lambda e: self.open_path(dir_path)
+                
                 for path in deletable_paths:
-                    def make_checkbox_handler(dir_path):
-                        return lambda e: self.on_checkbox_change(e, dir_path)
-                    
-                    def make_delete_handler(dir_path):
-                        return lambda e: self.confirm_delete(dir_path)
-                    
-                    def make_open_handler(dir_path):
-                        return lambda e: self.open_path(dir_path)
-                    
                     dir_size = self.get_path_size(path)
                     
                     # Create checkbox and store reference
@@ -1177,7 +1257,7 @@ class DupesGUI:
                     self.item_rows[path] = item_row
                     
                     self.results_view.controls.append(item_row)
-        self.page.update()
+        self.safe_update()
 
     def confirm_delete(self, path_to_delete: str):
         """Show a confirmation dialog before deleting a file or directory."""
